@@ -19,6 +19,7 @@ data class Project(
     val modifiedAt: Long = System.currentTimeMillis(),
     val aspect: AspectRatio = AspectRatio.PORTRAIT_9_16,
     val canvasHeight: Int = 1080,
+    val fitMode: FitMode = FitMode.FIT,
     val tracks: List<Track> = listOf(
         Track(id = newId("trk"), kind = TrackKind.VIDEO),
         Track(id = newId("trk"), kind = TrackKind.AUDIO),
@@ -58,6 +59,40 @@ enum class AspectRatio(val label: String, val widthRatio: Int, val heightRatio: 
     }
 
     val isPortrait: Boolean get() = heightRatio > widthRatio
+}
+
+/**
+ * Wie ein Clip in den Projektrahmen eingepasst wird.
+ *
+ * Wichtig: Ohne feste Vorgabe skaliert Media3 die Ausgabe auf die **Quellgröße**
+ * (ein 16:9-Clip in einem 9:16-Projekt bleibt damit 16:9 mit schwarzen Balken).
+ * Deshalb wird beim Bauen der Komposition die feste Rahmengröße mitgegeben.
+ */
+@Serializable
+enum class FitMode(val label: String) {
+    /** Ganzer Clip sichtbar, notfalls mit schwarzen Rändern. */
+    FIT("Einpassen (Ränder)"),
+
+    /** Rahmen komplett gefüllt, dafür wird seitlich/oben beschnitten. */
+    FILL("Ausfüllen (Zuschnitt)"),
+
+    /** Rahmen komplett gefüllt, Bild wird verzerrt. */
+    STRETCH("Verzerren (füllt)");
+
+    val description: String
+        get() = when (this) {
+            FIT -> "Nichts geht verloren, es können schwarze Ränder bleiben."
+            FILL -> "Bildschirm komplett gefüllt, Ränder werden weggeschnitten."
+            STRETCH -> "Bildschirm komplett gefüllt, das Bild wird in die Länge gezogen."
+        }
+
+    /** Kurzform für die Werkzeugleiste. */
+    val shortLabel: String
+        get() = when (this) {
+            FIT -> "Einpassen"
+            FILL -> "Ausfüllen"
+            STRETCH -> "Verzerren"
+        }
 }
 
 @Serializable
@@ -134,7 +169,44 @@ data class VideoClip(
 ) : TimelineItem {
     override val kindLabel: String get() = "Video"
 
-    val sourceEndMs: Long get() = (sourceStartMs + durationMs).coerceAtMost(sourceDurationMs)
+    /**
+     * Endposition in der Quelldatei für Media3.
+     *
+     * Wichtig: Die gespeicherte [sourceDurationMs] kommt aus einer Abfrage in
+     * ganzen Millisekunden und kann **kürzer** sein als die Dauer, die Media3
+     * selbst aus der Datei liest (z. B. Datei 30052,300 ms → gespeichert
+     * 30052 ms). Media3 prüft in `EditedMediaItem.getClippedDuration`
+     * `endPositionUs <= durationUs` und wirft sonst eine
+     * `IllegalArgumentException` – die gesamte Vorschau bleibt dann schwarz.
+     *
+     * Deshalb liegt das Ende immer um [END_MARGIN_MS] unter der gespeicherten
+     * Quelldauer. Der Abstand ist eine gute Zehntelsekunde und damit in der
+     * Vorschau nicht sichtbar, verhindert aber den harten Abbruch.
+     */
+    val sourceEndMs: Long
+        get() {
+            // Nur das ECHTE Dateiende braucht den Abstand. Wird ein Clip ohnehin weit vor
+            // dem Ende geschnitten (Normalfall), darf nichts abgezogen werden: Ein
+            // pauschaler Abzug kürzt jeden Clip um 100 ms, die Sequenz rechnet aber mit
+            // der vollen Länge — an der Clip-Grenze entsteht dann eine Lücke, die Media3
+            // mit "blank frames" überbrückt und die Wiedergabe für Sekunden anhält.
+            val hartesEnde = sourceDurationMs
+            val maxEnd = (hartesEnde - END_MARGIN_MS).coerceAtLeast(0L)
+            val start = sourceStartMs.coerceIn(0L, maxEnd)
+            val gewuenscht = start + durationMs
+            // Solange der gewünschte Schnitt nicht am Dateiende klebt, exakt schneiden.
+            return if (gewuenscht < hartesEnde) gewuenscht else maxEnd
+        }
+
+    companion object {
+        /**
+         * Sicherheitsabstand zum Dateiende in Millisekunden.
+         *
+         * Deckt die Rundung der gespeicherten Dauer ab und hält Abstand zu
+         * einem möglicherweise später liegenden echten Dateiende.
+         */
+        const val END_MARGIN_MS = 100L
+    }
 }
 
 /** Tonclip: Musik oder Voiceover. */

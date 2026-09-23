@@ -24,9 +24,14 @@ Rauschunterdrückung und KI-Generierung.
 - **Media3 Transformer 1.11.1** erzeugt den Film, **CompositionPlayer**
   spielt die Vorschau derselben Komposition ab. Mehrere Sequenzen werden dabei
   gemischt; die Textspur läuft als Kompositionseffekt.
+- **Clips werden exakt geschnitten**: Die Clipping-Endposition geht nur dann
+  knapp unter die Quelldauer, wenn der Schnitt wirklich am Dateiende liegt.
+  Ein pauschaler Sicherheitsabstand kürzt jeden Clip und reißt an den
+  Clip-Grenzen Lücken auf, die Media3 mit Leerbildern überbrückt — die
+  Vorschau bleibt dort stehen. Bei mehreren Clips ist die volle Länge Pflicht.
 - **`model/TimelineOps.kt` ist frei von Android-Abhängigkeiten**, damit die
   Schnittlogik als JVM-Unit-Test prüfbar ist (Trimmen, Teilen, Verschieben,
-  Normalisierung). 33 Tests decken diese Regeln ab, darunter der
+  Normalisierung). 53 Tests decken diese Regeln ab, darunter der
   Verstärkungs-Baustein `media/ConstantGainProvider.kt` und die
   Exportprofile (`ExportOptionsTest`).
 - Oberfläche mit **Jetpack Compose** (Material 3), dunkles Basis-Theme.
@@ -98,7 +103,7 @@ einem echten Release-Schlüssel.
 
 | Prüfung | Ergebnis |
 |---|---|
-| Bau + Unit-Tests | 33 Tests grün |
+| Bau + Unit-Tests | 53 Tests grün |
 | Start und Oberfläche | rendert vollständig, Kaltstart 0,7 s |
 | Import (12-s-Clip, 720p) | Timeline zeigt 12,0 s, Dauern korrekt |
 | Vorschau-Wiedergabe | läuft durch, Zeitcode wandert, Ende sauber |

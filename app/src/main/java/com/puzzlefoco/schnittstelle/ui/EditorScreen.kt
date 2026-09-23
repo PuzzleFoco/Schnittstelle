@@ -285,8 +285,17 @@ private fun ActionBar(
                 .padding(horizontal = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            OutlinedButton(onClick = onPickMedia, contentPadding = PaddingValues(horizontal = 12.dp)) {
+            OutlinedButton(
+                onClick = onPickMedia,
+                contentPadding = PaddingValues(horizontal = 12.dp),
+            ) {
                 Text("＋ Medien")
+            }
+            OutlinedButton(
+                onClick = { vm.cycleFitMode() },
+                contentPadding = PaddingValues(horizontal = 12.dp),
+            ) {
+                Text("⛶ ${vm.project?.fitMode?.shortLabel ?: "Einpassen"}")
             }
             OutlinedButton(onClick = onPickMusic, contentPadding = PaddingValues(horizontal = 12.dp)) {
                 Text("♪ Musik")

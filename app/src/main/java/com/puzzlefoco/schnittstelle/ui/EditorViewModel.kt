@@ -18,6 +18,7 @@ import com.puzzlefoco.schnittstelle.model.AudioClip
 import com.puzzlefoco.schnittstelle.model.EffectPreset
 import com.puzzlefoco.schnittstelle.model.ExportCodec
 import com.puzzlefoco.schnittstelle.model.ExportQuality
+import com.puzzlefoco.schnittstelle.model.FitMode
 import com.puzzlefoco.schnittstelle.model.Project
 import com.puzzlefoco.schnittstelle.model.TextClip
 import com.puzzlefoco.schnittstelle.model.TimelineItem
@@ -150,6 +151,25 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     fun renameProject(name: String) {
         update { it.copy(name = name) }
+    }
+
+    /**
+     * Schaltet die Einpassung weiter: Einpassen → Ausfüllen → Verzerren → Einpassen.
+     *
+     * Ändert die Ausgabegröße der Vorschau: Ohne festen Rahmen übernimmt Media3 die
+     * Quellgröße, wodurch ein Querformat-Clip in einem Hochformat-Projekt schwarze
+     * Balken behält. Die Vorschau wird neu aufgebaut, damit das sofort sichtbar ist.
+     */
+    fun cycleFitMode() {
+        val current = project ?: return
+        val next = when (current.fitMode) {
+            FitMode.FIT -> FitMode.FILL
+            FitMode.FILL -> FitMode.STRETCH
+            FitMode.STRETCH -> FitMode.FIT
+        }
+        update { it.copy(fitMode = next) }
+        rebuildPreview()
+        notice = "Bildanpassung: ${next.label} – ${next.description}"
     }
 
     /** Wendet eine Änderung an, normalisiert die Invarianten und speichert. */
