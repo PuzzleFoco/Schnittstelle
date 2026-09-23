@@ -1,5 +1,6 @@
 package com.puzzlefoco.schnittstelle.model
 
+import androidx.media3.common.MimeTypes
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.util.UUID
@@ -200,16 +201,47 @@ enum class EffectPreset(val label: String) {
     INVERT("Invertiert"),
 }
 
-/** Exportprofile für 720p/1080p. */
+/** Video-Codecs, die der Export anbieten kann. */
+@Serializable
+enum class ExportCodec(val label: String, val mimeType: String, val fileSuffix: String) {
+    H264("H.264 (kompatibel)", MimeTypes.VIDEO_H264, "h264"),
+    H265("H.265 / HEVC (kleiner)", MimeTypes.VIDEO_H265, "h265"),
+    VP9("VP9 (offen)", MimeTypes.VIDEO_VP9, "vp9"),
+    AV1("AV1 (modern)", MimeTypes.VIDEO_AV1, "av1");
+
+    /** HEVC und AV1 kodieren effizienter, brauchen also weniger Bitrate als H.264. */
+    val bitrateFactor: Double
+        get() = when (this) {
+            H264 -> 1.0
+            H265 -> 0.65
+            VP9 -> 0.8
+            AV1 -> 0.55
+        }
+
+    /** Nicht jedes Gerät hat für jeden Codec einen Encoder – lässt sich nicht vorab wissen. */
+    val isUniversallySupported: Boolean get() = this == H264
+}
+
+/** Exportprofile für 720p bis 4K. */
 @Serializable
 enum class ExportQuality(val label: String, val height: Int, val fps: Int, val bitrate: Int) {
     P720("720p · 30 fps", 720, 30, 6_000_000),
     P1080("1080p · 30 fps", 1080, 30, 12_000_000),
-    P1080HQ("1080p · 60 fps hoch", 1080, 60, 20_000_000);
+    P1080HQ("1080p · 60 fps hoch", 1080, 60, 20_000_000),
+    UHD4K("4K · 30 fps", 2160, 30, 45_000_000),
+    UHD4K60("4K · 60 fps hoch", 2160, 60, 70_000_000);
 
-    /** Geschätzte Dateigröße in MB für [durationMs]. */
-    fun estimatedSizeMb(durationMs: Long): Double =
-        durationMs / 1000.0 * (bitrate + 192_000) / 8.0 / 1024.0 / 1024.0
+    val is4K: Boolean get() = height >= 2160
+
+    /** Geschätzte Dateigröße in MB für [durationMs] und den gewählten [codec]. */
+    fun estimatedSizeMb(durationMs: Long, codec: ExportCodec = ExportCodec.H264): Double {
+        val videoBitrate = bitrate * codec.bitrateFactor
+        return durationMs / 1000.0 * (videoBitrate + AUDIO_BITRATE) / 8.0 / 1024.0 / 1024.0
+    }
+
+    private companion object {
+        const val AUDIO_BITRATE = 192_000.0
+    }
 }
 
 fun newId(prefix: String): String = "${prefix}_" + UUID.randomUUID().toString().take(8)

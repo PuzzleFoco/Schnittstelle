@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -59,6 +60,7 @@ import com.puzzlefoco.schnittstelle.media.Exporter
 import com.puzzlefoco.schnittstelle.media.MediaProbe
 import com.puzzlefoco.schnittstelle.model.AudioClip
 import com.puzzlefoco.schnittstelle.model.EffectPreset
+import com.puzzlefoco.schnittstelle.model.ExportCodec
 import com.puzzlefoco.schnittstelle.model.ExportQuality
 import com.puzzlefoco.schnittstelle.model.Project
 import com.puzzlefoco.schnittstelle.model.TextAlign
@@ -184,6 +186,7 @@ fun EditorScreen(vm: EditorViewModel) {
         ExportDialog(
             vm = vm,
             project = project,
+            onOpen = { uri -> vm.openExport(uri) },
             onShare = { uri ->
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "video/mp4"
@@ -590,8 +593,10 @@ private fun ExportDialog(
     vm: EditorViewModel,
     project: Project,
     onShare: (android.net.Uri) -> Unit,
+    onOpen: (android.net.Uri) -> Unit,
 ) {
     var quality by remember { mutableStateOf(ExportQuality.P1080) }
+    var codec by remember { mutableStateOf(ExportCodec.H264) }
     val state = vm.exportState
     val busy = state is Exporter.State.Progress
 
@@ -600,7 +605,7 @@ private fun ExportDialog(
         containerColor = SchnittstelleColors.SurfaceHigh,
         title = { Text("Exportieren", color = SchnittstelleColors.Text) },
         text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
                 when (state) {
                     is Exporter.State.Success -> {
                         Text(
@@ -621,24 +626,32 @@ private fun ExportDialog(
                     }
 
                     else -> {
+                        SectionLabel("Auflösung")
                         ExportQuality.entries.forEach { q ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable(enabled = !busy) { quality = q },
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                RadioButton(selected = quality == q, onClick = { quality = q }, enabled = !busy)
-                                Column {
-                                    Text(q.label, color = SchnittstelleColors.Text, style = MaterialTheme.typography.bodyMedium)
-                                    Text(
-                                        text = "≈ ${formatBytes((q.estimatedSizeMb(project.durationMs) * 1024 * 1024).toLong())}",
-                                        color = SchnittstelleColors.TextDim,
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                }
-                            }
+                            ChoiceRow(
+                                selected = quality == q,
+                                enabled = !busy,
+                                onClick = { quality = q },
+                                title = q.label,
+                                subtitle = "≈ " + formatBytes(
+                                    (q.estimatedSizeMb(project.durationMs, codec) * 1024 * 1024).toLong()
+                                ),
+                                warn = q.is4K,
+                            )
                         }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        SectionLabel("Codec")
+                        ExportCodec.entries.forEach { c ->
+                            ChoiceRow(
+                                selected = codec == c,
+                                enabled = !busy,
+                                onClick = { codec = c },
+                                title = c.label,
+                                subtitle = codecHint(c),
+                            )
+                        }
+
                         if (state is Exporter.State.Progress) {
                             Spacer(modifier = Modifier.height(10.dp))
                             LinearProgressIndicator(
@@ -652,7 +665,7 @@ private fun ExportDialog(
                             )
                         }
                         Text(
-                            text = "Format: H.264 + AAC, ${quality.height}p, ${quality.fps} fps",
+                            text = "Format: ${codec.label} + AAC, ${quality.height}p, ${quality.fps} fps",
                             color = SchnittstelleColors.TextDim,
                             style = MaterialTheme.typography.labelSmall,
                             modifier = Modifier.padding(top = 8.dp),
@@ -663,9 +676,13 @@ private fun ExportDialog(
         },
         confirmButton = {
             when (val s = state) {
-                is Exporter.State.Success -> Button(onClick = { onShare(s.uri) }) { Text("Teilen") }
+                is Exporter.State.Success -> Row {
+                    Button(onClick = { onOpen(s.uri) }) { Text("Öffnen") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedButton(onClick = { onShare(s.uri) }) { Text("Teilen") }
+                }
                 is Exporter.State.Progress -> TextButton(onClick = { vm.cancelExport() }) { Text("Abbrechen") }
-                else -> Button(onClick = { vm.startExport(quality) }, enabled = !busy) { Text("Starten") }
+                else -> Button(onClick = { vm.startExport(quality, codec) }, enabled = !busy) { Text("Starten") }
             }
         },
         dismissButton = {
@@ -674,4 +691,51 @@ private fun ExportDialog(
             }
         },
     )
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text = text,
+        color = SchnittstelleColors.TextDim,
+        style = MaterialTheme.typography.labelSmall,
+        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
+    )
+}
+
+@Composable
+private fun ChoiceRow(
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    title: String,
+    subtitle: String,
+    warn: Boolean = false,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled) { onClick() },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = onClick, enabled = enabled)
+        Column {
+            Text(
+                text = title,
+                color = if (warn) SchnittstelleColors.Warn else SchnittstelleColors.Text,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = subtitle,
+                color = SchnittstelleColors.TextDim,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+}
+
+/** Kurze Einordnung je Codec – Kompatibilität ist der wichtigste Punkt. */
+private fun codecHint(codec: ExportCodec): String = when (codec) {
+    ExportCodec.H264 -> "läuft auf jedem Gerät · größte Datei"
+    ExportCodec.H265 -> "kleiner, viele Geräte können es abspielen"
+    ExportCodec.VP9 -> "offener Standard, klein"
+    ExportCodec.AV1 -> "kleinste Datei, ältere Geräte können es nicht abspielen"
 }

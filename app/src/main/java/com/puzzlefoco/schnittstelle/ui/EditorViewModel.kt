@@ -1,6 +1,7 @@
 package com.puzzlefoco.schnittstelle.ui
 
 import android.app.Application
+import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -15,6 +16,7 @@ import com.puzzlefoco.schnittstelle.media.Exporter
 import com.puzzlefoco.schnittstelle.media.MediaProbe
 import com.puzzlefoco.schnittstelle.model.AudioClip
 import com.puzzlefoco.schnittstelle.model.EffectPreset
+import com.puzzlefoco.schnittstelle.model.ExportCodec
 import com.puzzlefoco.schnittstelle.model.ExportQuality
 import com.puzzlefoco.schnittstelle.model.Project
 import com.puzzlefoco.schnittstelle.model.TextClip
@@ -455,7 +457,7 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- Export
 
-    fun startExport(quality: ExportQuality) {
+    fun startExport(quality: ExportQuality, codec: ExportCodec) {
         val p = project ?: return
         if (p.durationMs == 0L) {
             notice = "Nichts zu exportieren – Timeline ist leer"
@@ -469,7 +471,22 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         exportState = Exporter.State.Progress(0)
-        exporter.export(composition, quality, p.baseName()) { state -> exportState = state }
+        exporter.export(composition, quality, codec, p.baseName()) { state -> exportState = state }
+    }
+
+    /** Öffnet das fertige Video in einem Player der Wahl (Galerie, VLC, was installiert ist). */
+    fun openExport(uri: Uri) {
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, "video/mp4")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // Der Application-Kontext hat keinen eigenen Task – ohne dieses Flag
+            // verweigert Android den Start (AndroidRuntimeException).
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { getApplication<Application>().startActivity(intent) }
+            .onFailure { error ->
+                Log.w(TAG, "openExport fehlgeschlagen", error)
+                notice = "Kein Videoplayer auf diesem Gerät gefunden"
+            }
     }
 
     fun cancelExport() {

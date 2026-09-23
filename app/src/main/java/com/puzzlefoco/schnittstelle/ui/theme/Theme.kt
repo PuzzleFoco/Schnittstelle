@@ -24,6 +24,8 @@ object SchnittstelleColors {
     val AudioTrack = Color(0xFF35A47C)
     val TextTrack = Color(0xFFC9873B)
     val Danger = Color(0xFFE5484D)
+    /** Hinweis statt Fehler – z. B. 4K, das nicht jedes Gerät schafft. */
+    val Warn = Color(0xFFE0A458)
 }
 
 private val DarkScheme = darkColorScheme(

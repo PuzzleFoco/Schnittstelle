@@ -18,6 +18,7 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
+import com.puzzlefoco.schnittstelle.model.ExportCodec
 import com.puzzlefoco.schnittstelle.model.ExportQuality
 import java.io.File
 
@@ -45,6 +46,7 @@ class Exporter(private val context: Context) {
     fun export(
         composition: Composition,
         quality: ExportQuality,
+        codec: ExportCodec,
         displayName: String,
         onState: (State) -> Unit,
     ) {
@@ -53,7 +55,9 @@ class Exporter(private val context: Context) {
 
         val encoderFactory = DefaultEncoderFactory.Builder(context)
             .setRequestedVideoEncoderSettings(
-                VideoEncoderSettings.Builder().setBitrate(quality.bitrate).build()
+                VideoEncoderSettings.Builder()
+                    .setBitrate((quality.bitrate * codec.bitrateFactor).toInt())
+                    .build()
             )
             .setRequestedAudioEncoderSettings(
                 AudioEncoderSettings.Builder().setBitrate(AUDIO_BITRATE).build()
@@ -64,7 +68,7 @@ class Exporter(private val context: Context) {
             override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                 stopPolling()
                 transformer = null
-                val published = runCatching { publishToGallery(outFile, displayName) }.getOrNull()
+                val published = runCatching { publishToGallery(outFile, displayName, codec) }.getOrNull()
                 onState(
                     State.Success(
                         uri = published ?: Uri.fromFile(outFile),
@@ -83,12 +87,12 @@ class Exporter(private val context: Context) {
                 stopPolling()
                 transformer = null
                 outFile.delete()
-                onState(State.Failure(describe(exportException)))
+                onState(State.Failure(describe(exportException, quality, codec)))
             }
         }
 
         val t = Transformer.Builder(context)
-            .setVideoMimeType(MimeTypes.VIDEO_H264)
+            .setVideoMimeType(codec.mimeType)
             .setAudioMimeType(MimeTypes.AUDIO_AAC)
             .setEncoderFactory(encoderFactory)
             .addListener(listener)
@@ -133,13 +137,24 @@ class Exporter(private val context: Context) {
         progress = null
     }
 
+    /**
+     * Der Dateiname der Galerie muss zur Dateiendung passen: H.265/VP9/AV1 sind
+     * keine MP4-Container-Dateien, sondern MKV – bei falscher Endung bricht die
+     * Wiedergabe in manchen Playern ab.
+     */
+    private fun galleryExtension(codec: ExportCodec): String =
+        if (codec == ExportCodec.H264 || codec == ExportCodec.H265) "mp4" else "mkv"
+
     /** Legt die fertige Datei in der Galerie ab und gibt deren Uri zurück. */
-    private fun publishToGallery(source: File, displayName: String): Uri {
-        val name = if (displayName.endsWith(".mp4", ignoreCase = true)) displayName else "$displayName.mp4"
+    private fun publishToGallery(source: File, displayName: String, codec: ExportCodec): Uri {
+        val endung = galleryExtension(codec)
+        val basis = displayName.substringBeforeLast('.').ifBlank { displayName }
+        val name = "$basis.$endung"
+        val mime = if (endung == "mp4") "video/mp4" else "video/x-matroska"
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.Video.Media.DISPLAY_NAME, name)
-                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                put(MediaStore.Video.Media.MIME_TYPE, mime)
                 put(MediaStore.Video.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/Schnittstelle")
                 put(MediaStore.Video.Media.IS_PENDING, 1)
             }
@@ -163,10 +178,25 @@ class Exporter(private val context: Context) {
         }
     }
 
-    private fun describe(exception: ExportException): String {
+    private fun describe(
+        exception: ExportException,
+        quality: ExportQuality,
+        codec: ExportCodec,
+    ): String {
         val codeName = runCatching { ExportException.getErrorCodeName(exception.errorCode) }.getOrNull()
         val detail = exception.message ?: exception.cause?.message ?: "unbekannter Fehler"
-        return if (codeName.isNullOrBlank()) detail else "$codeName – $detail"
+        val base = if (codeName.isNullOrBlank()) detail else "$codeName – $detail"
+
+        // Der häufigste Grund für einen Fehlschlag: das Gerät hat für diesen Codec
+        // oder diese Auflösung keinen Encoder. Dann hilft ein konkreter Hinweis.
+        val unsupported = exception.errorCode == ExportException.ERROR_CODE_ENCODING_FORMAT_UNSUPPORTED ||
+            exception.errorCode == ExportException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED
+        return if (unsupported) {
+            "Dieses Gerät kann ${codec.label} in ${quality.height}p nicht kodieren. " +
+                "Wähle einen anderen Codec (H.264 läuft überall) oder eine kleinere Auflösung.\n\n$base"
+        } else {
+            base
+        }
     }
 
     private companion object {

@@ -13,7 +13,7 @@ Schnittprogramms, bewusst ohne Übergänge, Cloud- und KI-Funktionen.
 | Text | Overlays mit Größe, Farbe, Position, Ausrichtung, fetter Schrift, Ein-/Ausblendzeit |
 | Ton | Musikspur mit Lautstärke 0–200 %, stumm schalten, Schleife wenn die Musik kürzer ist als der Film. Der Originalton importierter Clips bleibt erhalten |
 | Filter | Presets (Neutral, Hell, Dunkel, Warm, Kühl, Kräftig) über `Brightness`, `Contrast`, `HslAdjustment` |
-| Export | MP4 (H.264/AAC), 720p oder 1080p, Ablage in „Filme/Schnittstelle" plus Teilen-Dialog |
+| Export | MP4/MKV, Auflösung 720p/1080p/1080p60/**4K/4K60**, Codec **H.264, H.265, VP9 oder AV1**, Ablage in „Filme/Schnittstelle", danach **Öffnen** (Player) und Teilen |
 | Projekte | Mehrere Projekte, Speicherung als JSON im App-Verzeichnis |
 
 Bewusst **nicht** in v0.1: Übergänge, Cloud-Funktionen, Auto-Captions,
@@ -26,8 +26,9 @@ Rauschunterdrückung und KI-Generierung.
   gemischt; die Textspur läuft als Kompositionseffekt.
 - **`model/TimelineOps.kt` ist frei von Android-Abhängigkeiten**, damit die
   Schnittlogik als JVM-Unit-Test prüfbar ist (Trimmen, Teilen, Verschieben,
-  Normalisierung). 23 Tests decken diese Regeln ab, darunter der
-  Verstärkungs-Baustein `media/ConstantGainProvider.kt`.
+  Normalisierung). 33 Tests decken diese Regeln ab, darunter der
+  Verstärkungs-Baustein `media/ConstantGainProvider.kt` und die
+  Exportprofile (`ExportOptionsTest`).
 - Oberfläche mit **Jetpack Compose** (Material 3), dunkles Basis-Theme.
 - Zeiten im Datenmodell durchgängig in Millisekunden, IDs als UUID.
 
@@ -63,6 +64,12 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties   # nicht einchecken
 
 Das Ergebnis liegt unter `app/build/outputs/apk/debug/app-debug.apk`.
 
+## Fertige APK ohne eigenes SDK
+
+Der Workflow `.github/workflows/build.yml` baut bei jedem Push auf `main` eine
+APK und legt sie als Artefakt ab. Ein **Tag** (`git tag v0.2.0 && git push
+--tags`) erzeugt zusätzlich ein GitHub-Release mit der APK zum Direktdownload.
+
 ## Installieren
 
 ```bash
@@ -91,13 +98,16 @@ einem echten Release-Schlüssel.
 
 | Prüfung | Ergebnis |
 |---|---|
-| Bau + Unit-Tests | 23 Tests grün |
+| Bau + Unit-Tests | 33 Tests grün |
 | Start und Oberfläche | rendert vollständig, Kaltstart 0,7 s |
 | Import (12-s-Clip, 720p) | Timeline zeigt 12,0 s, Dauern korrekt |
 | Vorschau-Wiedergabe | läuft durch, Zeitcode wandert, Ende sauber |
 | Text-Overlay in der Vorschau | erscheint unten mittig |
 | Text-Overlay-Zeitfenster | im Export sichtbar bei 0,5 s, nicht mehr bei 2,0/6,0/11,0 s |
 | Export 1080p | 1920×1080, exakt **360 Frames = 12,000 s** bei 30 fps |
+| **Export 4K** | **3840×2160**, H.264 High, 30 fps, 12,01 s, 68,1 MB |
+| **Codec H.265** | Stream ist wirklich **HEVC**, 1080p, 7,8 Mbit/s statt 12 Mbit/s → kleinere Datei |
+| **Öffnen-Button** | Auswahldialog erscheint, Auswahl startet Google Fotos mit dem Film |
 | Ton im Export | AAC, Lautheit identisch zur Quelle (−21,1 dB / −14,5 dB) |
 | Projektdatei | JSON mit allen Spuren lesbar |
 
