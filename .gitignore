@@ -1,0 +1,12 @@
+# Bau-Ausgaben und lokale Konfiguration
+local.properties
+.gradle/
+build/
+*.apk
+*.aab
+.kotlin/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
