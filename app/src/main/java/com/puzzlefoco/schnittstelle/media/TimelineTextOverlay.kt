@@ -21,7 +21,10 @@ import kotlin.math.max
  */
 class TimelineTextOverlay(
     private val clipsProvider: () -> List<TextClip>,
-) : CanvasOverlay(/* useHdr= */ false) {
+    // Achtung: Der Parameter heißt `useInputFrameSize` (nicht „HDR"). Bei `false` müsste
+    // `setCanvasSize` vor dem ersten `onDraw` gesetzt werden – passiert das nicht, bleibt die
+    // Bitmap 0×0 und die Wiedergabe bricht mit „width and height must be > 0" ab.
+) : CanvasOverlay(/* useInputFrameSize= */ true) {
 
     private var width = 1080
     private var height = 1920

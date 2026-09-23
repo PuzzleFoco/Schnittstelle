@@ -6,7 +6,6 @@ import androidx.media3.common.C
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.audio.AudioProcessor
-import androidx.media3.common.audio.GainProcessor
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.StaticOverlaySettings
@@ -45,11 +44,18 @@ object CompositionFactory {
             val clip = placed.item as? VideoClip ?: return@mapNotNull null
             val file = File(mediaRoot, clip.sourcePath)
             if (!file.exists()) return@mapNotNull null
-            buildVideoItem(context, clip, file, fps)
+            clip to buildVideoItem(context, clip, file, fps)
         }
         if (videoClips.isNotEmpty()) {
-            val builder = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO))
-            videoClips.forEach(builder::addItem)
+            // Die Spurtypen bestimmen, welche Spuren der Clips übernommen werden: Mit
+            // `setOf(C.TRACK_TYPE_VIDEO)` allein wird der Originalton der Clips stillschweigend
+            // verworfen (stummer Export). AUDIO deshalb mit aufnehmen, sobald ein Clip hörbar ist.
+            val clipAudio = videoClips.any { (clip, _) -> !clip.muted }
+            val trackTypes =
+                if (clipAudio) setOf(C.TRACK_TYPE_VIDEO, C.TRACK_TYPE_AUDIO)
+                else setOf(C.TRACK_TYPE_VIDEO)
+            val builder = EditedMediaItemSequence.Builder(trackTypes)
+            videoClips.forEach { (_, item) -> builder.addItem(item) }
             sequences.add(builder.build())
         }
 
@@ -64,7 +70,7 @@ object CompositionFactory {
                     )
                         .setRemoveVideo(true)
                         .setDurationUs(clip.durationMs * 1000L)
-                        .setEffects(Effects(listOf(GainProcessor(ConstantGainProvider(clip.volume))), emptyList()))
+                        .setEffects(Effects(ConstantGainProvider.processorsFor(clip.volume), emptyList()))
                         .build()
                 )
             }
@@ -107,7 +113,7 @@ object CompositionFactory {
             .build()
 
         val audioProcessors: List<AudioProcessor> =
-            if (clip.muted) emptyList() else listOf(GainProcessor(ConstantGainProvider(clip.volume)))
+            if (clip.muted) emptyList() else ConstantGainProvider.processorsFor(clip.volume)
 
         return EditedMediaItem.Builder(mediaItem)
             .setDurationUs(clip.durationMs * 1000L)
@@ -117,16 +123,6 @@ object CompositionFactory {
             .build()
     }
 
-    /** Statische Verstärkung (0–2), damit Lautstärke in Vorschau und Export gleich klingt. */
-    private class ConstantGainProvider(private val gain: Float) :
-        GainProcessor.GainProvider {
-
-        override fun getGainFactorAtSamplePosition(position: Long, sampleRate: Int): Float =
-            gain.coerceIn(0f, 2f)
-
-        override fun isUnityUntil(samplePosition: Long, sampleRate: Int): Long =
-            if (gain == 1f) Long.MAX_VALUE else samplePosition
-    }
 
     /** Overlay-Standardeinstellungen (Vollbild-Overlay, Deckkraft bereits im Overlay gebacken). */
     val defaultOverlaySettings: StaticOverlaySettings = StaticOverlaySettings.Builder().build()

@@ -6,6 +6,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.transformer.CompositionPlayer
 import com.puzzlefoco.schnittstelle.data.ProjectStore
 import com.puzzlefoco.schnittstelle.media.CompositionFactory
@@ -25,10 +27,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import android.util.Log
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+
+private const val TAG = "Schnittstelle"
 
 /**
  * Zustand und Aktionen des Editors. Bindet Modell (JSON-Projekt), Vorschau
@@ -69,6 +75,18 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         get() = selectedItemId?.let { id -> project?.itemById(id) }
 
     init {
+        // Ohne Listener bleibt ein fehlgeschlagener Vorschau-Aufbau stumm: der
+        // Player steht dann einfach still. Fehler deshalb sichtbar machen.
+        player.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                Log.w(TAG, "Vorschau-Fehler", error)
+                notice = "Wiedergabe nicht möglich: ${error.errorCodeName}"
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                Log.i(TAG, "Player-Zustand: $playbackState")
+            }
+        })
         refreshProjects()
         scope.launch {
             while (isActive) {
@@ -87,8 +105,15 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------------------------------------------- Projekte
 
     fun refreshProjects() {
-        projects = store.listProjects()
-        mediaUsageBytes = runCatching { store.mediaUsageBytes() }.getOrDefault(0L)
+        // Plattenarbeit gehört nicht auf den Hauptthread: Projektdateien lesen und
+        // die Medienbelegung berechnen laufen im Hintergrund.
+        scope.launch {
+            val (loadedProjects, usage) = withContext(Dispatchers.IO) {
+                store.listProjects() to runCatching { store.mediaUsageBytes() }.getOrDefault(0L)
+            }
+            projects = loadedProjects
+            mediaUsageBytes = usage
+        }
     }
 
     fun newProject() {
@@ -143,9 +168,13 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             var failed = 0
             for (uri in uris) {
                 val result = runCatching {
-                    val relative = store.importMedia(uri)
-                    val info = MediaProbe.probe(getApplication(), store.mediaFile(relative))
-                    relative to info
+                    // Kopieren und Auslesen der Metadaten dauert bei großen Dateien
+                    // Sekunden – deshalb im Hintergrund, nicht auf dem Hauptthread.
+                    withContext(Dispatchers.IO) {
+                        val relative = store.importMedia(uri)
+                        val info = MediaProbe.probe(getApplication(), store.mediaFile(relative))
+                        relative to info
+                    }
                 }
                 val (relative, info) = result.getOrElse {
                     failed++
@@ -391,6 +420,8 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
             player.play()
         }
         isPlaying = player.isPlaying
+        Log.i(TAG, "Play-Toggle: isPlaying=${player.isPlaying} zustand=${player.playbackState} " +
+            "position=${player.currentPosition} dauer=${project?.durationMs}")
     }
 
     fun select(itemId: String?) {
@@ -411,7 +442,14 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
                 notice = "Vorschau nicht möglich: ${error.message ?: "unbekannt"}"
                 return@launch
             }
-            runCatching { player.setComposition(composition, position) }
+            runCatching {
+                player.setComposition(composition, position)
+                // setComposition bereitet den Player nicht vor: ohne prepare()
+                // bleibt er im Zustand IDLE und play() bewirkt nichts.
+                player.prepare()
+            }
+                .onSuccess { Log.i(TAG, "Vorschau bereit: pos=$position dauer=${p.durationMs}") }
+                .onFailure { Log.w(TAG, "Vorschau-Aufbau fehlgeschlagen", it) }
         }
     }
 
