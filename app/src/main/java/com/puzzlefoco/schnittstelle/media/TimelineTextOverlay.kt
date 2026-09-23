@@ -55,6 +55,11 @@ class TimelineTextOverlay(
 
     override fun onDraw(canvas: Canvas, presentationTimeUs: Long) {
         val timeMs = presentationTimeUs / 1000L
+        // CanvasOverlay zeichnet jeden Frame auf DIESELBE Bitmap. Ohne vorheriges Leeren
+        // bleibt der Text des letzten Frames stehen und Overlays "kleben" bis zum Ende
+        // des Films, auch wenn ihr Zeitfenster längst abgelaufen ist.
+        canvas.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+
         val clips = clipsProvider().filter { timeMs >= it.startMs && timeMs < it.endMs }
         if (clips.isEmpty()) return
 
